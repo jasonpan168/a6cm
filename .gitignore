@@ -1,0 +1,60 @@
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+database.db
+
+# 敏感配置文件
+config.php
+*.env
+*.env.local
+.env*
+!.env.example
+
+# 生产数据备份
+*.sql
+!create_tables.sql
+!db_update.sql
+!seed_test_account.sql
+
+# 系统文件
+.DS_Store
+**/.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 二维码库运行时生成的缓存（库会按需自动重建，无需纳入版本控制）
+phpqrcode/cache/*
+!phpqrcode/cache/.gitkeep
+
+# 测试和调试文件
+test_*.php
+debug.php
+diagnose_db.php
+add_test_data.php
+create_test_link.php
+fix_database.php
+
+# 日志文件
+*.log
+error_log
+
+# 临时文件 / 编辑器备份
+*.tmp
+*.bak
+*.tar.gz
+*.zip
+*.php[0-9]
+*.orig
+*~
+
+# Let's Encrypt 域名验证遗留
+.well-known/
+
+# 个人文件
+personal/
+private/
+secret/

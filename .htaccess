@@ -1,0 +1,13 @@
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([a-zA-Z0-9]+)/?$ redirect.php?code=$1 [L,QSA]
+
+# 生产环境关闭错误显示，错误写入日志即可（开发时可临时改为 on）
+php_flag display_errors off
+php_flag log_errors on
+
+# 禁止外部访问敏感文件（配置、数据库、SQL、环境变量）
+<FilesMatch "^(\.env.*|config\.php|.*\.sql|.*\.db|.*\.sqlite.*)$">
+    Require all denied
+</FilesMatch>
