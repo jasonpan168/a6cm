@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 安全漏洞报告
+    url: https://github.com/jasonpan168/a6cm/security/advisories/new
+    about: 请勿公开提交安全漏洞，使用私密安全通报，或邮件 weijianao@gmail.com（详见 SECURITY.md）。
+  - name: 💼 商业授权咨询
+    url: mailto:weijianao@gmail.com
+    about: 如需闭源商用授权（不受 AGPL-3.0 约束），请邮件联系。
