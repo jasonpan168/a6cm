@@ -127,9 +127,12 @@ if (!defined('SMTP_FROM_NAME')) {
     define('SMTP_FROM_NAME', getenv('SMTP_FROM_NAME') ?: '短网址服务');
 }
 
-// 二维码API配置
+// 二维码配置
+// 默认留空 = 使用仓库自带的 phpqrcode 库在本地生成二维码（推荐）。
+// 只有显式配置 QR_CODE_API 时，generate_qrcode.php 才会改走该远程接口；
+// 注意：走远程意味着把用户的完整短链接发送给第三方，请自行评估隐私影响。
 if (!defined('QR_CODE_API')) {
-    define('QR_CODE_API', getenv('QR_CODE_API') ?: 'https://api.pwmqr.com/qrcode/create/?url=');
+    define('QR_CODE_API', getenv('QR_CODE_API') ?: '');
 }
 
 try {
