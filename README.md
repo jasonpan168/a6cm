@@ -278,9 +278,10 @@ a6cm/
 - **数据库里没有明文密码，仓库里也没有任何预置哈希。**
 - 密码强度要求：≥ 8 位，且同时含大写字母、小写字母、数字（`register.php`、`create_admin.php`）。
 - ⚠️ **已知行为**：`login.php` 和 `register.php` 在哈希前都会对密码做
-  `htmlspecialchars()`。两侧一致所以功能正常，但含 `< > & " '` 的密码实际被存成了
-  转义后的形式，长度校验也是按转义后计算的。这是历史遗留行为，**改动它会导致现有
-  用户无法登录**，因此保持原样并在此说明。
+  `htmlspecialchars()`（后台的 `admin_login.php` / `create_admin.php` 不做）。
+  各自两端一致所以登录都正常，但含 `< > & " '` 的前台密码实际被存成转义后的形式，
+  长度校验也按转义后计算。这是历史遗留行为，**改动它会导致现有用户无法登录**，
+  因此保持原样并在此说明，详见「技术债」TD-5。
 
 ### 3. 各项防护的真实状态
 
@@ -401,6 +402,127 @@ URL_BLACKLIST=malware-example.test,phishing-example.test
 
 请勿在公开 Issue 中提交漏洞细节，也请勿发邮件（本项目不提供邮件报告渠道）。
 详见 [SECURITY.md](SECURITY.md)。
+
+---
+
+## 三、技术债（Known Technical Debt）
+
+这一节是给**接手这个项目的人**看的：下面每一条都是已知的、目前没做的事。
+格式统一为 **是什么 → 影响谁 → 为什么现在不做 → 从哪下手**。
+
+如果你只想知道「能不能直接上生产」：可以，但请先读完 TD-1、TD-2、TD-3。
+
+---
+
+### TD-1　SQLite 实际不可用（文档曾声称支持）
+
+- **是什么**：`config.php` 有一段 SQLite 分支（检测到 `database.db` 就优先用它），
+  但整套代码跑不起来。两个原因：
+  1. `create_tables.sql` 是 MySQL DDL（`AUTO_INCREMENT`、`ENGINE=InnoDB`、
+     `int(11)`），`sqlite3` 执行直接语法错误；
+  2. 应用查询里散布 MySQL 专有函数 `NOW()`、`CURDATE()`、
+     `DATE_SUB(... INTERVAL n DAY)`，出现在 **6 个文件**：
+     `redirect.php`、`user_dashboard.php`、`admin_dashboard.php`、
+     `data_dashboard.php`、`admin_users.php`、`get_stats_data.php`。
+- **影响谁**：想在没有 MySQL 的小机器 / 共享空间 / 本地快速试用的人。
+  照旧文档走会得到一个看起来装好了、实际一查询就炸的站点。
+- **为什么现在不做**：改造量不小（一份 SQLite schema + 逐条改写时间函数
+  或引入抽象层），而本项目的实际部署场景都有 MySQL。与其做一半，
+  不如先把文档改成如实说明。
+- **从哪下手**：
+  1. 写 `create_tables.sqlite.sql`（`INTEGER PRIMARY KEY AUTOINCREMENT`，去掉
+     `ENGINE`/`CHARSET`）；
+  2. 把时间函数收敛到一处，例如加 `a6_sql_now()` / `a6_sql_days_ago($n)`
+     两个辅助函数按驱动返回不同 SQL，再替换那 6 个文件里的字面量；
+  3. `config.php` 里用 `$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)` 分派；
+  4. 两种驱动各跑一遍完整流程再改文档。
+
+### TD-2　钓鱼跳板：有黑名单开关，但没有情报源和审核
+
+短网址服务最现实的滥用是被拿去做钓鱼/诈骗跳转，代价由**你的域名**承担
+（被 Safe Browsing 拉黑、被邮件服务商标记、被 CDN/注册商投诉下架）。
+
+- **现在能做到的**：
+  - ✅ 协议白名单：只允许 `http`/`https`，`javascript:`/`data:`/`file:`/
+    `vbscript:`/`ftp:` 一律拒绝
+  - ✅ 域名黑名单：`blacklist.txt` + `.env` 的 `URL_BLACKLIST`，新建和编辑
+    两条路径都检查，支持父域匹配（用法见「安全与隐私」一节）
+  - ✅ 必须登录 + 邮箱验证后才能创建链接
+- **还缺什么**：
+  - ❌ 没有接入任何恶意网址情报源（Google Safe Browsing / 腾讯 / 360 等）
+  - ❌ 没有人工审核队列，也没有新用户观察期
+  - ❌ 没有举报入口，没有下架流程
+  - ❌ 跳转前没有「即将前往外部网站」的中间确认页
+  - ❌ 黑名单是**全量读文件**，没有缓存，几万条以上会成为每次创建的开销
+- **影响谁**：所有把本项目挂在自己域名上对公网开放注册的部署者。
+- **为什么现在不做**：情报源需要 API key 和配额，属于部署者的选择而不是
+  项目该替他做的决定；审核队列则需要一整套后台工作流。先把**开关**做出来，
+  让有需求的人能立刻接上。
+- **从哪下手**：`config.php` 的 `a6_validate_target_url()` 是唯一入口，
+  在黑名单检查之后加一次情报 API 查询即可，无需改动任何页面。
+  审核队列建议在 `links` 表加 `status` 字段（pending/approved/rejected），
+  `redirect.php` 只跳 approved。
+
+### TD-3　访客 IP 留存：没有脱敏、没有保留期、没有导出/删除
+
+- **是什么**：每一次短链接跳转，`redirect.php` 都会往 `url_clicks` 写一行，
+  含**完整访客 IP**（`$_SERVER['REMOTE_ADDR']`）、`user_agent`、`referer`、
+  时间戳。这张表只增不减。
+- **影响谁**：所有部署者。在中国大陆《个人信息保护法》、欧盟 GDPR 等法域下，
+  **IP 地址通常被认定为个人信息**，合规责任落在部署者头上，不在本项目作者头上。
+- **本项目缺的能力**：
+  - ❌ 没有 IP 脱敏选项（截断末段 / 哈希加盐 / 完全不存）
+  - ❌ 没有内置保留期与自动清理（只在 README 给了一条 cron 示例，要你自己配）
+  - ❌ 没有「导出某人的数据」「删除某人的数据」的接口，无法响应数据主体请求
+  - ❌ 没有隐私政策模板
+- **为什么现在不做**：脱敏粒度、保留天数、是否需要 DSR 接口，都取决于部署者
+  所在法域和业务形态，写死任何一个默认值都可能是错的。
+- **从哪下手**：
+  1. 加 `.env` 开关，例如 `CLICK_IP_MODE=full|truncate|hash|none`，
+     在 `redirect.php` 写库前统一处理（只有一处写入点，改动很小）；
+  2. 加 `CLICK_RETENTION_DAYS`，配一个清理脚本或在 `redirect.php` 里低频触发；
+  3. 需要 DSR 的话，按 `ip_address` / `user_id` 做导出和删除两个 CLI 脚本。
+
+### TD-4　CSRF 已全覆盖，但周边仍有缺口
+
+本轮已把**所有有副作用的端点**纳入 `csrf_require()`，并把两处「写操作走 GET」
+（`resend_verification.php` 的重发、两个面板的单条删除）改成了 POST。
+剩下的是周边问题：
+
+- **没有 CSP 响应头**：项目不下发 `Content-Security-Policy`。万一将来某处
+  转义漏了，就没有第二道防线。
+  → **从哪下手**：先在 nginx 加一条相对宽松的策略（页面内有内联 `onclick` 和
+  内联 `<script>`，直接上 `script-src 'self'` 会打断功能），长期应把内联脚本
+  抽成外部文件后再收紧。
+- **创建链接的频率限制存在 session 里**（`index.php` 的 `create_count`），
+  换 cookie 即可绕过。它防的是误操作，不是攻击者。
+  → **从哪下手**：复用本轮新建的 `login_attempts` 那套按 IP 计数的写法，
+  或直接在 `links` 表按 `user_id` + 时间窗口 `COUNT(*)`。
+- **跳转 / 二维码 / 统计接口没有限流**：`redirect.php`、`generate_qrcode.php`
+  （二维码是本地 CPU 生成）、`get_stats_data.php` 都可以被无限调用。
+  → **从哪下手**：nginx `limit_req` 是性价比最高的做法。
+- **后台没有 2FA，也没有操作审计日志**：谁在什么时候删了哪条链接，事后查不到。
+  → **从哪下手**：加一张 `admin_audit_log` 表，在 `admin_dashboard.php` /
+  `admin_users.php` 的写操作分支各记一行。
+
+### TD-5　其它
+
+- **前台密码在哈希前被 `htmlspecialchars()` 处理**：`register.php:42` 写入时做，
+  `login.php:66` 校验时也做，两端口径一致所以登录正常。副作用是含
+  `< > & " '` 的密码实际以转义形式存储（`&amp;` 等），长度校验也按转义后的长度算。
+  后台那一对（`admin_login.php`、`create_admin.php`）**没有**这个处理，两端同样一致。
+  也就是说前台和后台是两套口径 —— 各自自洽，但同一个密码在两边算出的哈希不同。
+  **不修的理由**：改了会让所有已注册用户无法登录。
+  → **从哪下手**：要改必须配套迁移——登录成功时用旧口径校验通过后，
+  立刻用新口径重新 `password_hash()` 并更新该行，灰度一段时间再移除旧口径。
+- **`urls` 表是历史遗留**：和 `links` 结构几乎相同，代码里到处 `source_table`
+  二选一分支，是复杂度的主要来源之一。新装时它是空表。
+  → **从哪下手**：确认线上无数据后，删表并移除所有 `source_table` 分支。
+- **`url_clicks` 有 `referer` 和 `referrer` 两列**，只用了前者，后者恒为 NULL。
+  → **从哪下手**：确认无人读取后 `ALTER TABLE url_clicks DROP COLUMN referrer;`。
+- **没有自动化测试**：本次所有验收都是人工 curl + 查库完成的，回归全靠重跑。
+  → **从哪下手**：先把本 README 里那些 curl 自查脚本固化成一个
+  `tests/smoke.sh`，至少覆盖跳转、二维码、登录、CSRF 拒绝这四条。
 
 ---
 
