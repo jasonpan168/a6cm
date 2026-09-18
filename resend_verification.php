@@ -10,14 +10,25 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+// 会话 Cookie 参数（secure/httponly/SameSite）必须在 session_start() 之前设置，
+// 统一走 a6_session_boot()。
+a6_session_boot();
 require_once 'verify_email.php';
 
 $message = "";
 
-// 获取邮箱参数
-$email = filter_input(INPUT_GET, 'email', FILTER_SANITIZE_EMAIL);
+// 重发验证邮件会改库并发邮件，是**写操作**，必须走 POST + CSRF。
+// 原来它读的是 GET 参数 —— 那意味着任何人构造一个
+// <img src="/resend_verification.php?email=受害者邮箱"> 就能让服务器发信，
+// 既是 CSRF 也是一个免费的发信放大器。给 GET 加 token 治标不治本，
+// 根因是写操作不该用 GET，所以这里改成 POST。
+$email = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require();
+    $email = filter_var(trim((string) ($_POST['email'] ?? '')), FILTER_SANITIZE_EMAIL);
+}
 
 if ($email) {
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -342,7 +353,8 @@ if ($email) {
     <div class="container">
         <h2 class="form-title">重新发送验证邮件</h2>
         <?php if (!$email): ?>
-        <form method="GET">
+        <form method="POST">
+            <?php echo csrf_field(); ?>
             <div class="input-container" data-icon="📧">
                 <input type="email" name="email" placeholder="请输入您的邮箱地址" required>
             </div>

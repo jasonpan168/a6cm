@@ -10,13 +10,20 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+// 会话 Cookie 参数（secure/httponly/SameSite）必须在 session_start() 之前设置，
+// 统一走 a6_session_boot()。
+a6_session_boot();
 
 // 登录验证
 if (!isset($_SESSION['admin_logged_in'])) {
     header('Location: admin_login.php');
     exit;
+}
+
+// 所有 POST 写操作统一做 CSRF 校验（必须在任何副作用之前）
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require();
 }
 
 // 处理用户权限更新
@@ -212,6 +219,7 @@ $users = $stmt->fetchAll();
                         <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center space-x-2">
                                 <form method="POST" class="flex items-center space-x-2">
+                                    <?php echo csrf_field(); ?>
                                     <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
                                     <label class="inline-flex items-center">
                                         <input type="checkbox" name="is_premium" class="form-checkbox h-4 w-4 text-blue-600" 

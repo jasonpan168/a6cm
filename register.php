@@ -10,13 +10,13 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+// 会话 Cookie 参数（secure/httponly/SameSite）必须在 session_start() 之前设置，
+// 统一走 a6_session_boot()。
+a6_session_boot();
 
 // 生成CSRF令牌
-if (!isset($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
+// CSRF token 由 config.php 的 csrf_* 统一提供
 
 $message = "";
 
@@ -29,12 +29,14 @@ if (isset($_SESSION['register_message'])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 防止CSRF攻击
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    if (!csrf_validate()) {
         die('非法请求！');
     }
     
     // 重新生成CSRF令牌，防止表单重复提交
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    // 提交后强制轮换 token（防重放）
+    unset($_SESSION['csrf_token'], $_SESSION['csrf_token_prev'], $_SESSION['csrf_token_time']);
+    csrf_token();
     
     $username = htmlspecialchars(trim($_POST['username'] ?? ''), ENT_QUOTES, 'UTF-8');
     $password = htmlspecialchars(trim($_POST['password'] ?? ''), ENT_QUOTES, 'UTF-8');
@@ -382,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="container">
         <h2 class="form-title">用户注册</h2>
         <form method="POST" id="registerForm" onsubmit="return handleSubmit(event)">
-            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+            <?php echo csrf_field(); ?>
             <div class="input-container" data-icon="👤">
                 <input type="text" name="username" placeholder="用户名" required>
             </div>

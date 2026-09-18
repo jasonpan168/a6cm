@@ -10,13 +10,21 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+// 会话 Cookie 参数（secure/httponly/SameSite）必须在 session_start() 之前设置，
+// 统一走 a6_session_boot()。
+a6_session_boot();
+a6_session_boot();
 
 // 检查用户是否登录
 if (!isset($_SESSION['user_id'])) {
     header('Location: login.php');
     exit;
+}
+
+// 所有 POST 写操作统一做 CSRF 校验（必须在任何副作用之前）
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require();
 }
 
 // 获取用户信息
@@ -550,6 +558,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
         
         <?php if (count($links) > 0): ?>
             <form method="POST" id="linksForm">
+                <?php echo csrf_field(); ?>
                 <div class="batch-actions" style="margin-bottom: 1rem;">
                     <button type="submit" name="batch_delete" class="btn btn-danger" onclick="return confirm('确定要删除选中的链接吗？')" style="display: none;" id="batchDeleteBtn">🗑️ 批量删除</button>
                 </div>
@@ -592,6 +601,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                             <td><?php echo $link['expire_at'] ? date('Y-m-d H:i', strtotime($link['expire_at'])) : '永久有效'; ?></td>
                             <td class="actions">
                                 <form method="POST" style="display: inline;">
+                                    <?php echo csrf_field(); ?>
                                     <input type="hidden" name="link_id" value="<?php echo $link['id']; ?>">
                                     <button type="submit" name="toggle_favorite" class="btn btn-sm <?php echo $is_favorite ? 'btn-warning' : ''; ?>">
                                         <?php echo $is_favorite ? '⭐ 已收藏' : '☆ 收藏'; ?>

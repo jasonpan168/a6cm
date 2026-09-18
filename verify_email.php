@@ -10,8 +10,10 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 require 'config.php';
+// 会话 Cookie 参数（secure/httponly/SameSite）必须在 session_start() 之前设置，
+// 统一走 a6_session_boot()。
+a6_session_boot();
 require 'PHPMailer/src/Exception.php';
 require 'PHPMailer/src/PHPMailer.php';
 require 'PHPMailer/src/SMTP.php';
@@ -102,6 +104,8 @@ if (isset($_GET['code']) && isset($_GET['email'])) {
 
 // 处理重新发送验证邮件的请求
 if (isset($_POST['resend']) && isset($_POST['email'])) {
+    // 会改库并发邮件，属于写操作
+    csrf_require();
     $email = filter_var($_POST['email'], FILTER_SANITIZE_EMAIL);
     
     // 检查用户是否存在且未验证
@@ -234,6 +238,7 @@ if (isset($_POST['resend']) && isset($_POST['email'])) {
         <p>如果您没有收到验证邮件，可以在下面重新发送：</p>
         
         <form method="post">
+            <?php echo csrf_field(); ?>
             <input type="email" name="email" placeholder="请输入您的邮箱地址" required>
             <button type="submit" name="resend">重新发送验证邮件</button>
         </form>

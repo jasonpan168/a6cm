@@ -10,13 +10,18 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+a6_session_boot();
 
 // 登录验证
 if (!isset($_SESSION['admin_logged_in'])) {
     header('Location: admin_login.php');
     exit;
+}
+
+// 所有 POST 写操作统一做 CSRF 校验（必须在任何副作用之前）
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require();
 }
 
 // 批量删除短链接
@@ -757,6 +762,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
 
         <div class="bg-white rounded-lg shadow-md overflow-hidden">
             <form method="POST" action="" id="batchForm">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="user_code" value="<?= htmlspecialchars($user_code_filter) ?>">
                 <input type="hidden" name="short_code" value="<?= htmlspecialchars($short_code_filter) ?>">
                 <input type="hidden" name="page" value="<?= $page ?>">
@@ -851,6 +857,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                                     $is_favorite = $stmt->fetch();
                                     ?>
                                     <form method="POST" action="" style="display: inline;">
+                                        <?php echo csrf_field(); ?>
                                         <input type="hidden" name="link_id" value="<?= $link['id'] ?>">
                                         <input type="hidden" name="source_table" value="<?= $link['source_table'] ?>">
                                         <input type="hidden" name="user_code" value="<?= htmlspecialchars($user_code_filter) ?>">
@@ -934,6 +941,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
             <span class="close" onclick="closeEditModal()">&times;</span>
             <h2 class="text-2xl font-bold mb-4">编辑链接</h2>
             <form id="editForm" class="space-y-4">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" id="editLinkId" name="link_id">
                 <input type="hidden" id="editSourceTable" name="source_table">
                 <div>
