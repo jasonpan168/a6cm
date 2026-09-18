@@ -52,8 +52,14 @@ CREATE TABLE IF NOT EXISTS `url_clicks` (
   `referrer` text,
   `clicked_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `short_code` varchar(20) DEFAULT NULL,
+  -- redirect.php 每次记录点击时都会写入 source_table（取值 links / urls）。
+  -- 这一列曾经缺失，导致 INSERT 抛 "Unknown column 'source_table'"，
+  -- 而 redirect.php 把异常吞掉只写 error_log —— 跳转照常 302，
+  -- 但全新安装的站点点击统计永远是 0，且页面上没有任何报错。
+  `source_table` varchar(20) NOT NULL DEFAULT 'links',
   PRIMARY KEY (`id`),
-  KEY `short_code` (`short_code`)
+  KEY `short_code` (`short_code`),
+  KEY `url_id` (`url_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 老数据表（兼容旧版数据；全新安装时为空表，仅供回退查询使用）
