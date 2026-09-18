@@ -96,11 +96,15 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
                    class="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded hover:bg-blue-100 transition-colors duration-200">
                     📊 查看统计
                 </a>
-                <a href="admin_dashboard.php?delete=<?= $link['id'] ?>&source=links&user_id=<?= $user_id ?>" 
-                   onclick="return confirm('确定要删除这个链接吗？')" 
-                   class="text-sm bg-red-50 text-red-600 px-3 py-1 rounded hover:bg-red-100 transition-colors duration-200">
-                    🗑️ 删除链接
-                </a>
+                <form method="POST" action="admin_dashboard.php" style="display:inline;">
+                    <?php echo csrf_field(); ?>
+                    <input type="hidden" name="delete_single" value="<?= htmlspecialchars($link['id'] . ':links', ENT_QUOTES, 'UTF-8') ?>">
+                    <button type="submit"
+                            onclick="return confirm('确定要删除这个链接吗？')"
+                            class="text-sm bg-red-50 text-red-600 px-3 py-1 rounded hover:bg-red-100 transition-colors duration-200">
+                        🗑️ 删除链接
+                    </button>
+                </form>
             </div>
         </div>
         <?php endforeach; ?>

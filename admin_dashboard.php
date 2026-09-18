@@ -62,9 +62,13 @@ if (isset($_POST['batch_delete']) && isset($_POST['selected_links'])) {
 }
 
 // 删除短链接
-if (isset($_GET['delete'])) {
-    $id = intval($_GET['delete']);
-    $source_table = isset($_GET['source']) ? $_GET['source'] : 'links';
+// 原来这里读的是 $_GET['delete'] —— 删除是写操作却走 GET，意味着
+// <img src="admin_dashboard.php?delete=123"> 就能让已登录的管理员删库里的链接，
+// 而且 POST 上的 CSRF 守卫完全管不到它。改成 POST，由上面的 csrf_require() 统一覆盖。
+if (isset($_POST['delete_single'])) {
+    $parts = explode(':', (string) $_POST['delete_single'], 2);
+    $id = intval($parts[0]);
+    $source_table = (isset($parts[1]) && $parts[1] === 'urls') ? 'urls' : 'links';
     
     if ($source_table == 'links') {
         $stmt = $pdo->prepare("DELETE FROM links WHERE id = ?");
@@ -78,14 +82,14 @@ if (isset($_GET['delete'])) {
     $redirect_url = "admin_dashboard.php?deleted=1&t=" . time();
     
     // 保留筛选条件
-    if (!empty($_GET['original_url'])) {
-        $redirect_url .= "&original_url=" . urlencode($_GET['original_url']);
+    if (!empty($_POST['user_code'])) {
+        $redirect_url .= "&user_code=" . urlencode($_POST['user_code']);
     }
-    if (!empty($_GET['short_code'])) {
-        $redirect_url .= "&short_code=" . urlencode($_GET['short_code']);
+    if (!empty($_POST['short_code'])) {
+        $redirect_url .= "&short_code=" . urlencode($_POST['short_code']);
     }
-    if (!empty($_GET['page'])) {
-        $redirect_url .= "&page=" . intval($_GET['page']);
+    if (!empty($_POST['page'])) {
+        $redirect_url .= "&page=" . intval($_POST['page']);
     }
     
     header("Location: $redirect_url");
@@ -876,9 +880,9 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                                                 class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded transition-colors duration-200 mr-2">
                                             ✏️ 编辑
                                         </button>
-                                        <a href="?delete=<?= $link['id'] ?>&source=<?= $link['source_table'] ?>" 
-                                           onclick="return confirm('⚠️ 确定要删除该链接吗？');" 
-                                           class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors duration-200">🗑️ 删除</a>
+                                        <button type="submit" name="delete_single" value="<?= htmlspecialchars($link['id'] . ':' . $link['source_table'], ENT_QUOTES, 'UTF-8') ?>"
+                                                onclick="return confirm('⚠️ 确定要删除该链接吗？');"
+                                                class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors duration-200">🗑️ 删除</button>
                                     </div>
                                 </td>
                             </tr>

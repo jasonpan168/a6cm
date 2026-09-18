@@ -63,8 +63,9 @@ if (isset($_POST['toggle_favorite'])) {
 }
 
 // 删除单个短链接
-if (isset($_GET['delete'])) {
-    $id = intval($_GET['delete']);
+// 同样从 GET 改成 POST：删除是写操作，走 GET 就绕开了 CSRF 守卫。
+if (isset($_POST['delete_single'])) {
+    $id = intval($_POST['delete_single']);
     // 确保只能删除自己的链接
     $stmt = $pdo->prepare("DELETE FROM links WHERE id = ? AND (user_id = ? OR user_code = ?)");
     $stmt->execute([$id, $user_id, $user_code]);
@@ -609,7 +610,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                                     </button>
                                 </form>
                                 <a href="view_stats.php?id=<?php echo $link['id']; ?>&source=links" class="btn btn-sm">📊 统计</a>
-                                <a href="user_dashboard.php?delete=<?php echo $link['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('确定要删除这个短链接吗？');">🗑️ 删除</a>
+                                <button type="submit" name="delete_single" value="<?php echo (int) $link['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('确定要删除这个短链接吗？');">🗑️ 删除</button>
                             </td>
                         </tr>
                     <?php endforeach; ?>
