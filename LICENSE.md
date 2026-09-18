@@ -37,7 +37,7 @@
 则可联系作者获取**单独的商业授权（不受 AGPL 约束）**：
 
 - 👤 作者：AJIE
-- 📮 邮箱：weijianao@gmail.com
+- 💬 联系方式：在项目仓库提交 Issue —— <https://github.com/jasonpan168/a6cm/issues>（标题请注明「商业授权咨询」）
 - 🌐 官网：https://www.a6.cm
 
 这与 MySQL、Qt、new-api 等项目采用的 **「AGPL 开源 + 商业双授权」** 模式一致：社区免费用、回馈即合规；想闭源独占，则付费授权。

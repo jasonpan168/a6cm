@@ -167,10 +167,11 @@ A: 有。导入 `seed_test_account.sql` 后，用户名 `testadmin`、密码 `Te
 ## 联系方式
 
 - 👤 作者：AJIE
-- 📮 邮箱：weijianao@gmail.com
+- 💬 联系方式：在项目仓库提交 Issue —— <https://github.com/jasonpan168/a6cm/issues>
 - 🌐 官网：https://www.a6.cm
 
-如有问题或建议，欢迎提交 Issue 或通过以上方式联系作者。商业授权事宜请邮件联系。
+如有问题或建议，欢迎提交 Issue。商业授权事宜同样请提交 Issue（标题注明「商业授权咨询」）。
+安全漏洞**请勿**公开提交 Issue，改用 GitHub 私密安全通报：<https://github.com/jasonpan168/a6cm/security/advisories/new>
 
 ---
 
