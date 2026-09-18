@@ -46,7 +46,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    // 自定义短码必须与 .htaccess / nginx 的重写规则字符集一致，且不超过
+    // links.short_code 的 varchar(20)。
+    // 不校验的后果实测有两个：
+    //   1) 超过 20 字符 -> PDO 抛 "Data too long"，未捕获，直接 500；
+    //   2) 存进 <svg/onload=1> 这类值 -> 在管理员后台、统计页、用户链接页
+    //      原样渲染，构成存储型 XSS（普通用户即可打管理员）。
     $custom_code = trim($_POST['custom_code'] ?? '');
+    if ($custom_code !== '' && !preg_match('/^[a-zA-Z0-9]{1,20}$/', $custom_code)) {
+        header("Location: " . $_SERVER['PHP_SELF'] . "?error=url&msg=" . urlencode('自定义短链接只能包含字母和数字，且不超过 20 个字符'));
+        exit;
+    }
     $expire_days = isset($_POST['expire_days']) ? intval($_POST['expire_days']) : null;
     $max_clicks = isset($_POST['max_clicks']) ? intval($_POST['max_clicks']) : null;
 
@@ -145,8 +155,9 @@ if (isset($_GET['error'])) {
 if (isset($_SESSION['flash_success_url'])) {
     $short_url = $_SESSION['flash_success_url'];
     unset($_SESSION['flash_success_url']);
+    $short_url_safe = htmlspecialchars($short_url, ENT_QUOTES, 'UTF-8');
     $message = "<p class='success'>🎉 短链接已生成: 
-                <input type='text' id='shortLink' value='$short_url' readonly>
+                <input type='text' id='shortLink' value=\"$short_url_safe\" readonly>
                 <button onclick='copyLink()' class='copy-btn'>📋 复制</button></p>";
 }
 

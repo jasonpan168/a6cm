@@ -105,7 +105,7 @@ if (empty($clicks)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>访问数据 - <?= $link['short_code'] ?></title>
+    <title>访问数据 - <?= htmlspecialchars($link['short_code'], ENT_QUOTES, 'UTF-8') ?></title>
     <!-- 添加Chart.js库，用于绘制统计图表 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js" integrity="sha384-RnKkiLpAfnHDqdOT/ZDVBAUtFuUI5F3F/ufOBRAJDi7bhKzoNsbHXQ124YWVBsUV" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -667,7 +667,7 @@ if (empty($clicks)) {
                 
                 function updateRealtimeData() {
                     // 获取实时数据
-                    fetch('get_realtime_stats.php?short_code=<?= $link['short_code'] ?>')
+                    fetch('get_realtime_stats.php?short_code=<?= htmlspecialchars(rawurlencode($link['short_code']), ENT_QUOTES, 'UTF-8') ?>')
                         .then(response => response.json())
                         .then(data => {
                             console.log('实时数据更新:', data);

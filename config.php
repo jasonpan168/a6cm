@@ -293,6 +293,35 @@ if (!function_exists('csrf_require')) {
     }
 }
 
+// --------------------------- 输出转义 ---------------------------
+
+if (!function_exists('a6_js')) {
+    /**
+     * 把 PHP 值安全地嵌进 HTML 属性里的 JS 代码（onclick="f(<?= a6_js($v) ?>)"）。
+     *
+     * 为什么不能只用 htmlspecialchars($v, ENT_QUOTES)：
+     * 属性里的实体会先被 HTML 解析器还原，再交给 JS 引擎。也就是说
+     * htmlspecialchars 把 ' 变成 &#039;，浏览器又把它变回 ' ——
+     * 于是 https://x/?a='+alert(1)+' 照样能从 JS 字符串里逃逸出来。实测确认过。
+     *
+     * 正确做法是先 json_encode（生成带引号的 JS 字面量，并把 < > & ' " 转成
+     * \uXXXX），再 htmlspecialchars 一次给 HTML 属性层用。
+     * 注意：返回值**自带引号**，调用处不要再套引号。
+     */
+    function a6_js($value)
+    {
+        $json = json_encode(
+            $value,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        );
+        if ($json === false) {
+            $json = '""';
+        }
+        return htmlspecialchars($json, ENT_QUOTES, 'UTF-8');
+    }
+}
+
 // --------------------------- 登录失败锁定 ---------------------------
 // 计数存数据库而不是 session —— 存 session 的话攻击者把 cookie 一丢就重新开始，
 // 等于没有防护。这里按 (scope, ip) 计数，用单条 INSERT ... ON DUPLICATE KEY UPDATE

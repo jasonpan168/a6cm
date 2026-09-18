@@ -354,7 +354,7 @@ for ($i = 6; $i >= 0; $i--) {
                 $scroll_data = array_merge($most_clicked_links, $most_clicked_links);
                 foreach ($scroll_data as $link): 
                 ?>
-                <div class="link-item" onclick="copyToClipboard('<?= htmlspecialchars($link['short_code']) ?>', '<?= htmlspecialchars($link['original_url']) ?>')">
+                <div class="link-item" onclick="copyToClipboard(<?= a6_js($link['short_code']) ?>, <?= a6_js($link['original_url']) ?>)">
                     <span class="click-count"><?= $link['click_count'] ?>次</span>
                     <span class="link-title">短链接: <?= htmlspecialchars($link['short_code']) ?></span>
                     <span class="link-url"><?= htmlspecialchars(substr($link['original_url'], 0, 50)) ?><?= strlen($link['original_url']) > 50 ? '...' : '' ?></span>

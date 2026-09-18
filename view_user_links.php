@@ -77,9 +77,9 @@ $links = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             </a>
                         </p>
                         <p class="text-sm text-gray-600">
-                            短链接：<a href="<?= BASE_URL . $link['short_code'] ?>" target="_blank" 
+                            短链接：<a href="<?= htmlspecialchars(BASE_URL . rawurlencode($link['short_code']), ENT_QUOTES, 'UTF-8') ?>" target="_blank" 
                                    class="text-blue-600 hover:text-blue-800 hover:underline">
-                                <?= BASE_URL . $link['short_code'] ?>
+                                <?= htmlspecialchars(BASE_URL . $link['short_code'], ENT_QUOTES, 'UTF-8') ?>
                             </a>
                         </p>
                     </div>

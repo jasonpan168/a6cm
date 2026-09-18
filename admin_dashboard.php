@@ -828,15 +828,15 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                                     <input type="checkbox" name="selected_links[]" value="<?= $link['id'] ?>:<?= $link['source_table'] ?>" class="form-checkbox h-5 w-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500">
                                 </td>
                                 <td class="px-4 py-3"><?= $link['id'] ?></td>
-                                <td class="px-4 py-3"><?= $link['user_code'] ?: '未填写' ?></td>
+                                <td class="px-4 py-3"><?= htmlspecialchars($link['user_code'] ?: '未填写', ENT_QUOTES, 'UTF-8') ?></td>
                                 <td class="px-4 py-3">
-                                    <a href="#" onclick="copyToClipboard(event, '<?= htmlspecialchars($link['original_url'], ENT_QUOTES) ?>')" class="text-blue-600 hover:text-blue-800 truncate-text" title="<?= htmlspecialchars($link['original_url']) ?>">
+                                    <a href="#" onclick="copyToClipboard(event, <?= a6_js($link['original_url']) ?>)" class="text-blue-600 hover:text-blue-800 truncate-text" title="<?= htmlspecialchars($link['original_url']) ?>">
                                         <?= htmlspecialchars($link['original_url']) ?>
                                     </a>
                                 </td>
                                 <td class="px-4 py-3">
-                                    <a href="#" onclick="copyToClipboard(event, '<?= "https://" . $_SERVER['HTTP_HOST'] . "/" . $link['short_code'] ?>')" class="text-blue-600 hover:text-blue-800">
-                                        <?= $link['short_code'] ?>
+                                    <a href="#" onclick="copyToClipboard(event, <?= a6_js("https://" . ($_SERVER['HTTP_HOST'] ?? '') . "/" . $link['short_code']) ?>)" class="text-blue-600 hover:text-blue-800">
+                                        <?= htmlspecialchars($link['short_code'], ENT_QUOTES, 'UTF-8') ?>
                                     </a>
                                 </td>
                                 <td class="px-4 py-3"><?= date('Y-m-d H:i', strtotime($link['created_at'])) ?></td>
@@ -859,9 +859,9 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                                     <form method="POST" action="" style="display: inline;">
                                         <?php echo csrf_field(); ?>
                                         <input type="hidden" name="link_id" value="<?= $link['id'] ?>">
-                                        <input type="hidden" name="source_table" value="<?= $link['source_table'] ?>">
-                                        <input type="hidden" name="user_code" value="<?= htmlspecialchars($user_code_filter) ?>">
-                                        <input type="hidden" name="short_code" value="<?= htmlspecialchars($short_code_filter) ?>">
+                                        <input type="hidden" name="source_table" value="<?= htmlspecialchars($link['source_table'], ENT_QUOTES, 'UTF-8') ?>">
+                                        <input type="hidden" name="user_code" value="<?= htmlspecialchars($user_code_filter, ENT_QUOTES, 'UTF-8') ?>">
+                                        <input type="hidden" name="short_code" value="<?= htmlspecialchars($short_code_filter, ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="page" value="<?= $page ?>">
                                         <button type="submit" name="toggle_favorite" class="<?= $is_favorite ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-500 hover:bg-gray-600' ?> text-white px-3 py-1 rounded-lg transition-colors duration-200">
                                             <?= $is_favorite ? '⭐ 已收藏' : '☆ 收藏' ?>
@@ -872,7 +872,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                                     <div class="flex justify-center space-x-2">
                                         <a href="view_stats.php?id=<?= $link['id'] ?>&source=<?= $link['source_table'] ?>" target="_blank" 
                                            class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded transition-colors duration-200">📊 统计</a>
-                                        <button onclick="editLink('<?= $link['id'] ?>', '<?= $link['source_table'] ?>', '<?= htmlspecialchars($link['original_url'], ENT_QUOTES) ?>', '<?= htmlspecialchars($link['remark'] ?? '', ENT_QUOTES) ?>', '<?= $link['max_clicks'] ?>', '<?= $link['expire_at'] ?>'); return false;" 
+                                        <button onclick="editLink(<?= a6_js((string) $link['id']) ?>, <?= a6_js($link['source_table']) ?>, <?= a6_js($link['original_url']) ?>, <?= a6_js($link['remark'] ?? '') ?>, <?= a6_js((string) ($link['max_clicks'] ?? '')) ?>, <?= a6_js((string) ($link['expire_at'] ?? '')) ?>); return false;" 
                                                 class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded transition-colors duration-200 mr-2">
                                             ✏️ 编辑
                                         </button>

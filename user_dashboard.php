@@ -587,8 +587,9 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
                             <td><input type="checkbox" name="selected_links[]" value="<?php echo $link['id']; ?>" class="link-checkbox"></td>
                             <td>
                                 <?php 
-                                $short_url = "http://" . $_SERVER['HTTP_HOST'] . "/" . $link['short_code'];
-                                echo "<a href='$short_url' target='_blank'>". htmlspecialchars($short_url) ."</a>";
+                                $short_url = "http://" . ($_SERVER['HTTP_HOST'] ?? '') . "/" . $link['short_code'];
+                                $short_url_safe = htmlspecialchars($short_url, ENT_QUOTES, 'UTF-8');
+                                echo "<a href=\"$short_url_safe\" target=\"_blank\" rel=\"noopener\">$short_url_safe</a>";
                                 ?>
                             </td>
                             <td class="truncate" title="<?php echo htmlspecialchars($link['original_url']); ?>">
