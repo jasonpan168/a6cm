@@ -10,25 +10,11 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-// 加固会话 Cookie（Secure, HttpOnly, SameSite=Lax）
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path' => '/',
-        'domain' => '',
-        'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-}
-session_start();
 include 'config.php';
-
-// CSRF Token 初始化（每30分钟轮换一次）
-if (empty($_SESSION['csrf_token']) || time() - ($_SESSION['csrf_token_time'] ?? 0) > 1800) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    $_SESSION['csrf_token_time'] = time();
-}
+// 会话 Cookie 参数（secure/httponly/SameSite）必须在 session_start() 之前设置，
+// 统一走 a6_session_boot()。
+a6_session_boot();
+// CSRF token 的生成/轮换/校验统一由 config.php 的 csrf_* 函数提供。
 
 // 生成随机短链接
 function generateRandomCode($length = 6) {
@@ -48,13 +34,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // CSRF 验证
-    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
-        header("Location: " . $_SERVER['PHP_SELF'] . "?error=csrf");
+    csrf_require();
+
+    // 目标网址校验：与 update_link.php 共用同一个 a6_validate_target_url()。
+    // 之前新建时完全不校验、只有编辑才校验，是明显的不一致，
+    // 等于让任何人把 javascript: / data: / file: 这类伪协议存进库里。
+    $url_error = null;
+    $original_url = a6_validate_target_url($_POST['url'] ?? '', $url_error);
+    if ($original_url === false) {
+        header("Location: " . $_SERVER['PHP_SELF'] . "?error=url&msg=" . urlencode($url_error));
         exit;
     }
 
-    $original_url = trim($_POST['url']);
-    $custom_code = trim($_POST['custom_code']);
+    $custom_code = trim($_POST['custom_code'] ?? '');
     $expire_days = isset($_POST['expire_days']) ? intval($_POST['expire_days']) : null;
     $max_clicks = isset($_POST['max_clicks']) ? intval($_POST['max_clicks']) : null;
 
@@ -141,6 +133,10 @@ if (isset($_GET['error'])) {
             break;
         case 'csrf':
             $message = "<p class='error'>⚠️ 请求校验失败，请刷新页面后重试。</p>";
+            break;
+        case 'url':
+            $reason = isset($_GET['msg']) ? (string) $_GET['msg'] : '网址格式不正确';
+            $message = "<p class='error'>⚠️ " . htmlspecialchars($reason, ENT_QUOTES, 'UTF-8') . "</p>";
             break;
     }
 }
@@ -481,7 +477,7 @@ if (isset($_GET['register_success'])) {
             </div>
             
             <!-- CSRF 隐藏字段 -->
-            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+            <?php echo csrf_field(); ?>
 
             <button type="submit" class="btn">🚀 立即生成短链接</button>
         </form>

@@ -1,0 +1,11 @@
+# 目标域名黑名单 —— 每行一个域名，# 开头为注释。
+#
+# 命中规则：精确匹配，或作为子域匹配。
+#   写 evil.example  ->  evil.example 和 a.b.evil.example 都会被拒绝
+#
+# 本文件默认只有注释（= 不拦截任何域名）。请按需自行添加。
+# 也可以用 .env 里的 URL_BLACKLIST=a.com,b.com 配置，两者取并集。
+#
+# 示例（取消注释即生效）：
+# malware-example.test
+# phishing-example.test

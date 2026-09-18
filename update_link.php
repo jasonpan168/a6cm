@@ -10,8 +10,10 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+// 会话 Cookie 参数（secure/httponly/SameSite）必须在 session_start() 之前设置，
+// 统一走 a6_session_boot()。
+a6_session_boot();
 
 header('Content-Type: application/json');
 
@@ -32,6 +34,11 @@ if (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true
     $is_admin = false;
 }
 
+// 有副作用的 JSON 接口，同样必须校验 CSRF（token 可放 body 或 X-CSRF-Token 头）
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require('json');
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_link') {
     if (!isset($_POST['link_id']) || !isset($_POST['original_url'])) {
         echo json_encode(['success' => false, 'message' => '缺少必要的参数']);
@@ -44,10 +51,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $max_clicks = isset($_POST['max_clicks']) && $_POST['max_clicks'] !== '' ? intval($_POST['max_clicks']) : null;
     $expire_at = isset($_POST['expire_at']) && !empty($_POST['expire_at']) ? date('Y-m-d H:i:s', strtotime($_POST['expire_at'])) : null;
 
-    if (empty($original_url) || !filter_var($original_url, FILTER_VALIDATE_URL)) {
-        echo json_encode(['success' => false, 'message' => '原始链接格式不正确']);
+    // 与 index.php 共用同一个校验器：filter_var(FILTER_VALIDATE_URL) 单用会放行
+    // javascript://comment%0Aalert(1)、file:///etc/passwd、ftp:// 等，必须叠 scheme 白名单
+    $url_error = null;
+    $validated_url = a6_validate_target_url($original_url, $url_error);
+    if ($validated_url === false) {
+        echo json_encode(['success' => false, 'message' => $url_error], JSON_UNESCAPED_UNICODE);
         exit;
     }
+    $original_url = $validated_url;
 
     // 检查链接权限：管理员可以编辑任何链接，普通用户只能编辑自己的链接
     if ($is_admin) {
@@ -104,10 +116,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['admin_logged_in'])
     $admin_max_clicks = isset($_POST['max_clicks']) && $_POST['max_clicks'] !== '' ? intval($_POST['max_clicks']) : null;
     $admin_expire_at = isset($_POST['expire_at']) && !empty($_POST['expire_at']) ? date('Y-m-d H:i:s', strtotime($_POST['expire_at'])) : null;
 
-    if (empty($original_url) || !filter_var($original_url, FILTER_VALIDATE_URL)) {
-        echo json_encode(['success' => false, 'message' => '原始链接格式不正确']);
+    // 与 index.php 共用同一个校验器：filter_var(FILTER_VALIDATE_URL) 单用会放行
+    // javascript://comment%0Aalert(1)、file:///etc/passwd、ftp:// 等，必须叠 scheme 白名单
+    $url_error = null;
+    $validated_url = a6_validate_target_url($original_url, $url_error);
+    if ($validated_url === false) {
+        echo json_encode(['success' => false, 'message' => $url_error], JSON_UNESCAPED_UNICODE);
         exit;
     }
+    $original_url = $validated_url;
 
     try {
         $update_fields = ['original_url' => $original_url];
@@ -160,10 +177,13 @@ else if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['admin_logged_
     $admin_max_clicks = isset($_POST['max_clicks']) && $_POST['max_clicks'] !== '' ? intval($_POST['max_clicks']) : null;
     $admin_expire_at = isset($_POST['expire_at']) && !empty($_POST['expire_at']) ? date('Y-m-d H:i:s', strtotime($_POST['expire_at'])) : null;
 
-    if (!filter_var($original_url, FILTER_VALIDATE_URL)) {
-        header("Location: admin_dashboard.php?error=" . urlencode('请输入有效的URL地址'));
+    $url_error = null;
+    $validated_url = a6_validate_target_url($original_url, $url_error);
+    if ($validated_url === false) {
+        header("Location: admin_dashboard.php?error=" . urlencode($url_error));
         exit;
     }
+    $original_url = $validated_url;
 
     try {
         $update_fields = ['original_url' => $original_url];
