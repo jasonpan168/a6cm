@@ -14,7 +14,7 @@
 
 - **PHP**: 7.4 或更高
 - **Web 服务器**: Apache 或 Nginx
-- **数据库**: MySQL 5.7+ 或 SQLite 3
+- **数据库**: MySQL 5.7+ / MariaDB（**SQLite 目前不可用**，见下方「数据库配置」）
 - **PHP 扩展**: PDO, OpenSSL, GD, cURL
 
 ### 2. 检查环境
@@ -50,29 +50,36 @@ nano .env
 
 ### 5. 初始化数据库
 
-**选项 A: 使用 SQLite（推荐用于开发）**
-
-SQLite 是最简单的选项。应用会在首次运行时自动创建数据库：
-
-```bash
-# 确保项目目录可写
-chmod 755 .
-
-# 访问应用时会自动创建数据库文件
-```
-
-**选项 B: 使用 MySQL**
+使用 MySQL / MariaDB（**目前唯一可用的数据库**，原因见下方「数据库配置」）：
 
 ```bash
 # 创建数据库
-mysql -u root -p -e "CREATE DATABASE dwz CHARACTER SET utf8mb4;"
+mysql -u root -p -e "CREATE DATABASE a6cm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-# 导入表结构
-mysql -u root -p dwz < create_tables.sql
+# 导入表结构（纯结构，不含任何数据）
+mysql -u root -p a6cm < create_tables.sql
 
-# 检查表是否创建成功
-mysql -u root -p dwz -e "SHOW TABLES;"
+# 检查表是否创建成功（应当看到 7 张表）
+mysql -u root -p a6cm -e "SHOW TABLES;"
 ```
+
+> 从旧版本升级的话，请另外执行一次 `db_update.sql`，它会补上
+> `url_clicks.source_table` 这一列。缺这列时点击记录写入会失败，
+> 但跳转一切正常、页面没有任何报错，表现为**点击统计永远是 0**。
+
+### 5.1 创建管理员账号
+
+本仓库**不预置任何账号**。用交互式脚本当场创建：
+
+```bash
+php create_admin.php
+```
+
+脚本会提示输入用户名和密码（输入时不回显），密码要求至少 8 位且同时包含
+大写字母、小写字母和数字，使用 `password_hash()` 存库。
+该脚本只能在命令行运行，通过 Web 访问会返回 403。
+
+前台用户请通过 `register.php` 自行注册。
 
 ### 6. 启动开发服务器
 
@@ -171,7 +178,7 @@ server {
 > ⚠️ **两个容易漏掉的点**
 > 1. 上面的短链接 `location` 必须存在，否则 nginx 部署下短网址跳转不工作。
 > 2. 敏感文件的 `deny` 规则必须与 `.htaccess` 对齐。只 deny `.env` 和
->    `database.db` 是不够的 —— `create_tables.sql`、`seed_test_account.sql`
+>    `database.db` 是不够的 —— `create_tables.sql`、`db_update.sql`
 >    这类文件会被公网直接下载。
 
 验证这两条规则确实生效：
@@ -181,7 +188,7 @@ server {
 curl -sI https://你的域名/abc123 | head -1
 
 # 以下全部应当是 403 或 404，绝不能是 200
-for f in .env config.php create_tables.sql seed_test_account.sql database.db; do
+for f in .env config.php create_tables.sql db_update.sql database.db; do
   printf '%-26s %s\n' "$f" "$(curl -s -o /dev/null -w '%{http_code}' https://你的域名/$f)"
 done
 ```
@@ -279,39 +286,34 @@ sudo crontab -e
 
 ## 数据库配置
 
-### SQLite
+### ⚠️ 关于 SQLite：目前不可用
 
-最简单的配置，无需安装数据库服务器：
+`config.php` 里确实有一段 SQLite 分支（检测到 `database.db` 就优先用它），
+但**请不要依赖它**，实测无法工作：
 
-```env
-# .env
-# SQLite 会自动使用 database.db 文件
-DB_HOST=
-DB_NAME=
-DB_USER=
-DB_PASSWORD=
-```
+1. `create_tables.sql` 是 MySQL DDL（`AUTO_INCREMENT`、`ENGINE=InnoDB`），
+   用 `sqlite3` 执行会直接报语法错误；
+2. 应用代码大量使用 MySQL 专有函数 —— `NOW()`、`CURDATE()`、
+   `DATE_SUB(... INTERVAL n DAY)`，散布在 `redirect.php`、`user_dashboard.php`、
+   `admin_dashboard.php`、`data_dashboard.php`、`admin_users.php`、
+   `get_stats_data.php` 中。
 
-**优点**:
-- 无需配置数据库服务器
-- 适合个人和小规模部署
-- 便于备份和转移
+要支持 SQLite，需要另写一份 SQLite 建表脚本并改写上述查询。**目前请使用 MySQL。**
 
-**缺点**:
-- 并发性能有限
-- 不适合大规模应用
-
-### MySQL
-
-用于生产环境的配置：
+### MySQL / MariaDB
 
 ```env
 # .env
-DB_HOST=localhost
-DB_NAME=dwz
-DB_USER=dwz
+DB_HOST=127.0.0.1
+DB_NAME=a6cm
+DB_USER=a6cm
 DB_PASSWORD=your_secure_password
 ```
+
+> **`.env` 是怎么生效的**：PHP 的 `getenv()` 不会读取 `.env` 文件，
+> 因此 `config.php` 顶部内置了一个零依赖加载器。同名的**真实环境变量
+> 优先级高于 `.env` 文件**（方便容器 / systemd 覆盖）。
+> 验证读到的值：`php -r 'include "config.php"; echo getenv("DB_NAME");'`
 
 ## 邮件配置
 
