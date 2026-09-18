@@ -129,29 +129,61 @@ server {
     access_log /var/log/nginx/a6.cm-access.log;
     error_log /var/log/nginx/a6.cm-error.log;
 
-    # URL 重写规则
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
+    # 敏感文件必须放在最前面：location 的正则匹配是「先到先得」，
+    # 放在短链接规则后面会被短链接规则抢先匹配掉。
+    # 这一段与 .htaccess 的 <FilesMatch> 保持一致：
+    # .env / config.php / *.sql / *.db / *.sqlite* 一律拒绝。
+    location ~* ^/(?:\.env.*|config\.php|.*\.sql|.*\.db|.*\.sqlite.*)$ {
+        deny all;
+        return 404;
     }
 
-    # PHP-FPM 配置
+    # 其它点开头的隐藏文件（.git、.htaccess 等）
+    location ~ /\. {
+        deny all;
+        return 404;
+    }
+
+    # PHP-FPM 配置（改成你实际安装的版本，如 php8.2-fpm.sock）
     location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php7.4-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;
         fastcgi_param PATH_INFO $fastcgi_path_info;
     }
 
-    # 防止访问敏感文件
-    location ~ /\.env {
-        deny all;
+    # 短链接跳转：等价于 .htaccess 里的
+    #   RewriteRule ^([a-zA-Z0-9]+)/?$ redirect.php?code=$1 [L,QSA]
+    # 少了这一段，nginx 下访问 /abc123 会落到首页而不是发生跳转，
+    # 也就是整个项目唯一的核心功能失效。
+    location ~ "^/([a-zA-Z0-9]+)/?$" {
+        try_files $uri $uri/ /redirect.php?code=$1&$query_string;
     }
 
-    location ~ /database\.db {
-        deny all;
+    # URL 重写规则
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
     }
 }
+```
+
+> ⚠️ **两个容易漏掉的点**
+> 1. 上面的短链接 `location` 必须存在，否则 nginx 部署下短网址跳转不工作。
+> 2. 敏感文件的 `deny` 规则必须与 `.htaccess` 对齐。只 deny `.env` 和
+>    `database.db` 是不够的 —— `create_tables.sql`、`seed_test_account.sql`
+>    这类文件会被公网直接下载。
+
+验证这两条规则确实生效：
+
+```bash
+# 应当 301/302 跳转到目标地址（而不是返回首页 HTML）
+curl -sI https://你的域名/abc123 | head -1
+
+# 以下全部应当是 403 或 404，绝不能是 200
+for f in .env config.php create_tables.sql seed_test_account.sql database.db; do
+  printf '%-26s %s\n' "$f" "$(curl -s -o /dev/null -w '%{http_code}' https://你的域名/$f)"
+done
 ```
 
 启用配置：
@@ -197,6 +229,10 @@ sudo nano /var/www/a6.cm/.env
 # 设置正确的权限
 sudo chmod 640 /var/www/a6.cm/.env
 sudo chown app:app /var/www/a6.cm/.env
+
+# 二维码在本地生成，phpqrcode 需要写掩码缓存，该目录必须对 Web 用户可写
+sudo chown -R www-data:www-data /var/www/a6.cm/phpqrcode/cache
+sudo chmod 755 /var/www/a6.cm/phpqrcode/cache
 ```
 
 ### 7. 配置 SSL（HTTPS）
