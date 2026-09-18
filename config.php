@@ -136,6 +136,384 @@ if (!defined('QR_CODE_API')) {
 }
 
 // ---------------------------------------------------------------------------
+// 安全工具函数（全站统一实现，请勿在各页面另造一套）
+// ---------------------------------------------------------------------------
+
+/**
+ * 取访客 IP。
+ * 只信任 REMOTE_ADDR —— X-Forwarded-For 是客户端可伪造的请求头，
+ * 直接拿它做登录锁定的键，等于让攻击者每次换个头就解锁。
+ * 如果你的站点确实在反向代理后面，请设置 TRUSTED_PROXY=1 并确保
+ * 只有你自己的代理能直连 PHP，否则不要打开。
+ */
+if (!function_exists('a6_client_ip')) {
+    function a6_client_ip()
+    {
+        $remote = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        if (getenv('TRUSTED_PROXY') === '1' && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $parts = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+            $candidate = trim($parts[0]);
+            if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+                return $candidate;
+            }
+        }
+
+        return $remote;
+    }
+}
+
+// --------------------------- CSRF ---------------------------
+// 沿用 index.php 原有的方案：会话内随机 token，每 30 分钟轮换。
+// 轮换时保留上一枚 token 一个周期作为宽限，避免用户把表单开着超过 30 分钟
+// 后提交被误杀。校验一律用 hash_equals，禁止用 === 比字符串。
+
+if (!defined('CSRF_TTL')) {
+    define('CSRF_TTL', 1800); // 30 分钟
+}
+
+if (!function_exists('a6_session_boot')) {
+    function a6_session_boot()
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+        // Cookie 参数必须在 session_start() 之前设置，之后再设是无效的空操作。
+        session_set_cookie_params([
+            'lifetime' => 0,
+            'path'     => '/',
+            'domain'   => '',
+            'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        session_start();
+    }
+}
+
+if (!function_exists('csrf_token')) {
+    /**
+     * 取当前 CSRF token（不存在或已过期则生成新的）。
+     * 注意：请在**校验之后**再调用它来渲染表单，避免刚校验完就轮换。
+     */
+    function csrf_token()
+    {
+        a6_session_boot();
+
+        $now = time();
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            $_SESSION['csrf_token_time'] = $now;
+        } elseif ($now - ($_SESSION['csrf_token_time'] ?? 0) > CSRF_TTL) {
+            // 轮换，但把旧 token 留一个周期作为宽限
+            $_SESSION['csrf_token_prev'] = $_SESSION['csrf_token'];
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+            $_SESSION['csrf_token_time'] = $now;
+        }
+
+        return $_SESSION['csrf_token'];
+    }
+}
+
+if (!function_exists('csrf_field')) {
+    /** 直接输出可放进 <form> 的隐藏字段。 */
+    function csrf_field()
+    {
+        return '<input type="hidden" name="csrf_token" value="'
+            . htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8') . '">';
+    }
+}
+
+if (!function_exists('csrf_validate')) {
+    /**
+     * 校验 token。取值顺序：显式传入 > POST 字段 csrf_token > 请求头 X-CSRF-Token。
+     * 全站保持一致：AJAX 既可以放 body 也可以放请求头。
+     */
+    function csrf_validate($token = null)
+    {
+        a6_session_boot();
+
+        if ($token === null) {
+            if (isset($_POST['csrf_token']) && is_string($_POST['csrf_token'])) {
+                $token = $_POST['csrf_token'];
+            } elseif (isset($_SERVER['HTTP_X_CSRF_TOKEN'])) {
+                $token = $_SERVER['HTTP_X_CSRF_TOKEN'];
+            }
+        }
+
+        if (!is_string($token) || $token === '') {
+            return false;
+        }
+
+        $current = $_SESSION['csrf_token'] ?? '';
+        if (is_string($current) && $current !== '' && hash_equals($current, $token)) {
+            return true;
+        }
+
+        // 宽限：轮换前的上一枚 token 仍然接受一个周期
+        $prev = $_SESSION['csrf_token_prev'] ?? '';
+        if (is_string($prev) && $prev !== '' && hash_equals($prev, $token)) {
+            return true;
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('csrf_require')) {
+    /**
+     * 校验失败直接终止请求（403）。
+     * $mode = 'json' 时返回 JSON，供 AJAX 接口使用。
+     */
+    function csrf_require($mode = 'html')
+    {
+        if (csrf_validate()) {
+            return;
+        }
+
+        error_log('CSRF 校验失败: ' . ($_SERVER['REQUEST_URI'] ?? '?') . ' from ' . a6_client_ip());
+
+        if (!headers_sent()) {
+            http_response_code(403);
+        }
+
+        if ($mode === 'json') {
+            if (!headers_sent()) {
+                header('Content-Type: application/json; charset=utf-8');
+            }
+            echo json_encode(['success' => false, 'message' => '请求校验失败（CSRF），请刷新页面后重试'], JSON_UNESCAPED_UNICODE);
+        } else {
+            if (!headers_sent()) {
+                header('Content-Type: text/html; charset=utf-8');
+            }
+            echo '<!DOCTYPE html><meta charset="utf-8"><title>403</title>'
+                . '<p>请求校验失败（CSRF token 无效或已过期）。请返回上一页刷新后重试。</p>';
+        }
+        exit;
+    }
+}
+
+// --------------------------- 登录失败锁定 ---------------------------
+// 计数存数据库而不是 session —— 存 session 的话攻击者把 cookie 一丢就重新开始，
+// 等于没有防护。这里按 (scope, ip) 计数，用单条 INSERT ... ON DUPLICATE KEY UPDATE
+// 原子自增，并发下不会丢计数。
+
+if (!defined('LOGIN_MAX_ATTEMPTS')) {
+    define('LOGIN_MAX_ATTEMPTS', (int) (getenv('LOGIN_MAX_ATTEMPTS') ?: 5));
+}
+if (!defined('LOGIN_LOCK_SECONDS')) {
+    define('LOGIN_LOCK_SECONDS', (int) (getenv('LOGIN_LOCK_SECONDS') ?: 900)); // 15 分钟
+}
+if (!defined('LOGIN_WINDOW_SECONDS')) {
+    define('LOGIN_WINDOW_SECONDS', (int) (getenv('LOGIN_WINDOW_SECONDS') ?: 900));
+}
+
+if (!function_exists('a6_login_lock_remaining')) {
+    /**
+     * 还需锁定多少秒；0 表示未锁定。
+     * 表不存在时返回 0（不因为缺表把所有人挡在门外），但会写 error_log。
+     */
+    function a6_login_lock_remaining(PDO $pdo, $scope, $ip)
+    {
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), locked_until)) AS remaining
+                   FROM login_attempts
+                  WHERE scope = ? AND ip_address = ? AND locked_until IS NOT NULL AND locked_until > NOW()'
+            );
+            $stmt->execute([$scope, $ip]);
+            $row = $stmt->fetch();
+            return $row ? (int) $row['remaining'] : 0;
+        } catch (PDOException $e) {
+            error_log('登录锁定检查失败（请执行 db_update.sql 建 login_attempts 表）: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('a6_login_record_failure')) {
+    /** 记一次失败。返回锁定剩余秒数（0 表示还没到阈值）。 */
+    function a6_login_record_failure(PDO $pdo, $scope, $ip)
+    {
+        try {
+            // 单条原子语句：
+            //  1) attempts —— 距上次失败超过窗口期就从 1 重新计，否则 +1
+            //  2) locked_until —— 用的是上一行刚算出的 NEW attempts
+            //  3) last_attempt_at 放最后赋值，保证 1) 读到的是旧值
+            $sql = 'INSERT INTO login_attempts (scope, ip_address, attempts, first_attempt_at, last_attempt_at, locked_until)
+                    VALUES (?, ?, 1, NOW(), NOW(), NULL)
+                    ON DUPLICATE KEY UPDATE
+                        attempts     = IF(last_attempt_at < (NOW() - INTERVAL ? SECOND), 1, attempts + 1),
+                        locked_until = IF(attempts >= ?, (NOW() + INTERVAL ? SECOND), NULL),
+                        last_attempt_at = NOW()';
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                $scope, $ip,
+                LOGIN_WINDOW_SECONDS,
+                LOGIN_MAX_ATTEMPTS,
+                LOGIN_LOCK_SECONDS,
+            ]);
+
+            return a6_login_lock_remaining($pdo, $scope, $ip);
+        } catch (PDOException $e) {
+            error_log('登录失败计数写入失败（请执行 db_update.sql 建 login_attempts 表）: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('a6_login_clear')) {
+    /** 登录成功后清掉该 IP 的失败记录。 */
+    function a6_login_clear(PDO $pdo, $scope, $ip)
+    {
+        try {
+            $stmt = $pdo->prepare('DELETE FROM login_attempts WHERE scope = ? AND ip_address = ?');
+            $stmt->execute([$scope, $ip]);
+        } catch (PDOException $e) {
+            error_log('清理登录失败记录出错: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('a6_lock_message')) {
+    function a6_lock_message($seconds)
+    {
+        $minutes = (int) ceil($seconds / 60);
+        return '登录尝试次数过多，请在约 ' . $minutes . ' 分钟后再试。';
+    }
+}
+
+// --------------------------- 目标 URL 校验与黑名单 ---------------------------
+
+if (!function_exists('a6_url_blacklist')) {
+    /**
+     * 读取域名黑名单。两个来源，取并集：
+     *   1) .env 的 URL_BLACKLIST（逗号分隔）
+     *   2) 项目根目录的 blacklist.txt（每行一个域名，# 开头为注释）
+     * 默认两者都为空 = 不拦截任何域名。
+     */
+    function a6_url_blacklist()
+    {
+        static $cache = null;
+        if ($cache !== null) {
+            return $cache;
+        }
+
+        $list = [];
+
+        $env = (string) (getenv('URL_BLACKLIST') ?: '');
+        if ($env !== '') {
+            foreach (explode(',', $env) as $item) {
+                $item = strtolower(trim($item));
+                if ($item !== '') {
+                    $list[] = $item;
+                }
+            }
+        }
+
+        $file = __DIR__ . '/blacklist.txt';
+        if (is_file($file) && is_readable($file)) {
+            $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if ($lines !== false) {
+                foreach ($lines as $line) {
+                    $line = strtolower(trim($line));
+                    if ($line === '' || $line[0] === '#') {
+                        continue;
+                    }
+                    $list[] = $line;
+                }
+            }
+        }
+
+        $cache = array_values(array_unique($list));
+        return $cache;
+    }
+}
+
+if (!function_exists('a6_host_blacklisted')) {
+    /** 主机名命中黑名单（精确匹配或作为子域）即返回 true。 */
+    function a6_host_blacklisted($host)
+    {
+        $host = strtolower(rtrim((string) $host, '.'));
+        if ($host === '') {
+            return false;
+        }
+
+        foreach (a6_url_blacklist() as $bad) {
+            $bad = ltrim($bad, '.');
+            if ($bad === '') {
+                continue;
+            }
+            if ($host === $bad || substr($host, -(strlen($bad) + 1)) === '.' . $bad) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('a6_validate_target_url')) {
+    /**
+     * 校验用户提交的目标网址。全站唯一入口（index.php 创建 / update_link.php 编辑
+     * 必须都用它，否则就会出现"新建不校验、编辑才校验"这种不一致）。
+     *
+     * 为什么不能只用 filter_var(FILTER_VALIDATE_URL)：它会放行
+     *   javascript://comment%0Aalert(1)   （伪协议，XSS 向量）
+     *   file:///etc/passwd
+     *   ftp://host/x
+     * 所以必须再叠一层 scheme 白名单。
+     *
+     * @param string      $url   原始输入
+     * @param string|null $error 出参：失败原因
+     * @return string|false 规范化后的 URL，失败返回 false
+     */
+    function a6_validate_target_url($url, &$error = null)
+    {
+        $error = null;
+        $url = trim((string) $url);
+
+        if ($url === '') {
+            $error = '网址不能为空';
+            return false;
+        }
+        if (strlen($url) > 2048) {
+            $error = '网址过长（上限 2048 字符）';
+            return false;
+        }
+        // 控制字符（含 %0A 解码后的换行）一律拒绝
+        if (preg_match('/[\x00-\x1F\x7F]/', $url)) {
+            $error = '网址包含非法字符';
+            return false;
+        }
+
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            $error = '网址格式不正确';
+            return false;
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            $error = '只允许 http:// 或 https:// 开头的网址';
+            return false;
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        if ($host === '') {
+            $error = '网址缺少主机名';
+            return false;
+        }
+
+        if (a6_host_blacklisted($host)) {
+            $error = '该域名已被本站列入黑名单，无法创建短链接';
+            return false;
+        }
+
+        return $url;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 源代码获取地址 / Appropriate Legal Notice
 // ---------------------------------------------------------------------------
 // AGPL-3.0 第 13 条要求：通过网络向用户提供服务时，必须让用户能取得本服务

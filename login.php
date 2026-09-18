@@ -10,18 +10,21 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+// Cookie 参数必须在 session_start() 之前设置。
+// 原来的写法是 session_start() 在最前、session_set_cookie_params() 写在登录成功
+// 分支里，那是个空操作 —— secure / httponly / SameSite 从来没有真正生效过。
+a6_session_boot();
 
 $message = "";
-
-// 生成CSRF令牌
-if (!isset($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
+$client_ip = a6_client_ip();
 
 // 处理重新发送验证邮件的AJAX请求
 if (isset($_POST['ajax_resend_verification']) && isset($_SESSION['unverified_email'])) {
+    // 这个 AJAX 接口会改库并发邮件，属于有副作用的写操作，必须校验 CSRF。
+    // 前端本来就把 token 放进了 body，但后端从来没有验过。
+    csrf_require('json');
+
     header('Content-Type: application/json');
     $response = ['success' => false, 'message' => ''];
 
@@ -56,18 +59,16 @@ if (isset($_POST['ajax_resend_verification']) && isset($_SESSION['unverified_ema
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // 验证CSRF令牌
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        die('非法请求！');
-    }
+    // 验证CSRF令牌（hash_equals，抗时序侧信道）
+    csrf_require();
     
     $username = trim(htmlspecialchars($_POST['username'], ENT_QUOTES, 'UTF-8'));
     $password = trim(htmlspecialchars($_POST['password'], ENT_QUOTES, 'UTF-8'));
     
-    // 防止暴力破解
-    if (isset($_SESSION['login_attempts']) && $_SESSION['login_attempts'] >= 5 && 
-        time() - $_SESSION['last_attempt'] < 1800) { // 30分钟锁定
-        $message = "<p class='error'>⚠️ 登录尝试次数过多，请30分钟后再试！</p>";
+    // 防止暴力破解：计数存数据库（原来存 session，攻击者丢掉 cookie 即可绕过）
+    $locked = a6_login_lock_remaining($pdo, 'user', $client_ip);
+    if ($locked > 0) {
+        $message = "<p class='error'>⚠️ " . htmlspecialchars(a6_lock_message($locked), ENT_QUOTES, 'UTF-8') . "</p>";
     } else {
         // 查询用户
         $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
@@ -92,10 +93,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     {$resendButton}
                 </div>";
             } else {
-                // 登录成功，重置登录尝试次数
-                unset($_SESSION['login_attempts']);
-                unset($_SESSION['last_attempt']);
-                
+                // 登录成功，清除该 IP 的失败计数
+                a6_login_clear($pdo, 'user', $client_ip);
+
                 // 更新会话ID防止会话固定攻击
                 session_regenerate_id(true);
                 
@@ -104,24 +104,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['username'] = $user['username'];
                 $_SESSION['user_code'] = $user['user_code'];
                 $_SESSION['last_activity'] = time();
-                
-                // 设置安全的会话cookie
-                session_set_cookie_params([
-                    'lifetime' => 3600,
-                    'path' => '/',
-                    'secure' => true,
-                    'httponly' => true,
-                    'samesite' => 'Strict'
-                ]);
-                
+
+                // 注意：会话 cookie 参数已在 a6_session_boot() 里、session_start()
+                // 之前设置好。在这里再调 session_set_cookie_params() 是无效的。
+
                 header("Location: index.php");
                 exit;
             }
         } else {
-            // 记录失败的登录尝试
-            $_SESSION['login_attempts'] = isset($_SESSION['login_attempts']) ? $_SESSION['login_attempts'] + 1 : 1;
-            $_SESSION['last_attempt'] = time();
-            $message = "<p class='error'>⚠️ 用户名或密码错误！</p>";
+            // 记录失败的登录尝试（数据库计数）
+            $remaining = a6_login_record_failure($pdo, 'user', $client_ip);
+            $message = $remaining > 0
+                ? "<p class='error'>⚠️ " . htmlspecialchars(a6_lock_message($remaining), ENT_QUOTES, 'UTF-8') . "</p>"
+                : "<p class='error'>⚠️ 用户名或密码错误！</p>";
         }
     }
 }
@@ -379,7 +374,7 @@ if (isset($_GET['logout']) && $_GET['logout'] == 1) {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: 'ajax_resend_verification=1&csrf_token=<?php echo $_SESSION["csrf_token"]; ?>'
+            body: 'ajax_resend_verification=1&csrf_token=<?php echo urlencode(csrf_token()); ?>'
         })
         .then(response => {
             if (!response.ok) {
@@ -417,7 +412,7 @@ if (isset($_GET['logout']) && $_GET['logout'] == 1) {
         <div id="message" class="message-container"></div>
         <h2 class="form-title">用户登录</h2>
         <form method="POST">
-            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+            <?php echo csrf_field(); ?>
             <div class="input-container" data-icon="👤">
                 <input type="text" name="username" placeholder="用户名" required>
             </div>

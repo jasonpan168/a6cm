@@ -10,25 +10,47 @@
  * 重新分发和/或修改它。本程序按"现状"分发，不附带任何担保。
  * 如需闭源商用（不公开源码），请通过项目仓库 https://github.com/jasonpan168/a6cm 提交 Issue 获取商业授权。
  */
-session_start();
 include 'config.php';
+a6_session_boot();
+
+$error = null;
+$client_ip = a6_client_ip();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username']);
-    $password = trim($_POST['password']);
+    // 1) CSRF：必须在任何副作用之前
+    csrf_require();
 
-    // 查询数据库中的账号
-    $stmt = $pdo->prepare("SELECT * FROM admin WHERE username = ?");
-    $stmt->execute([$username]);
-    $admin = $stmt->fetch();
+    // 2) 防爆破：计数存数据库，换 cookie 绕不过去
+    $locked = a6_login_lock_remaining($pdo, 'admin', $client_ip);
 
-    // 验证密码
-    if ($admin && password_verify($password, $admin['password'])) {
-        $_SESSION['admin_logged_in'] = true;
-        header('Location: admin_dashboard.php');
-        exit;
+    if ($locked > 0) {
+        $error = "⚠️ " . a6_lock_message($locked);
     } else {
-        $error = "⚠️ 用户名或密码错误！";
+        $username = trim((string) ($_POST['username'] ?? ''));
+        $password = (string) ($_POST['password'] ?? '');
+
+        $stmt = $pdo->prepare("SELECT * FROM admin WHERE username = ?");
+        $stmt->execute([$username]);
+        $admin = $stmt->fetch();
+
+        if ($admin && password_verify($password, $admin['password'])) {
+            a6_login_clear($pdo, 'admin', $client_ip);
+
+            // 防会话固定：登录成功必须换 session id
+            session_regenerate_id(true);
+
+            $_SESSION['admin_logged_in'] = true;
+            $_SESSION['admin_username'] = $admin['username'];
+            $_SESSION['admin_last_activity'] = time();
+
+            header('Location: admin_dashboard.php');
+            exit;
+        }
+
+        $remaining = a6_login_record_failure($pdo, 'admin', $client_ip);
+        $error = $remaining > 0
+            ? "⚠️ " . a6_lock_message($remaining)
+            : "⚠️ 用户名或密码错误！";
     }
 }
 ?>
@@ -181,6 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         
         <form method="POST">
+            <?php echo csrf_field(); ?>
             <div class="form-group">
                 <label for="username">用户名</label>
                 <input type="text" id="username" name="username" class="form-control" placeholder="请输入管理员用户名" required>

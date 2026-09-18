@@ -98,3 +98,19 @@ CREATE TABLE IF NOT EXISTS `favorite_links` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `link_user` (`link_id`, `user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 登录失败计数（防爆破）。按 (scope, ip_address) 计数：
+-- scope = 'admin'（后台 admin_login.php） / 'user'（前台 login.php）。
+-- 计数必须存数据库而不是 session —— 存 session 的话攻击者丢掉 cookie 就重新开始。
+CREATE TABLE IF NOT EXISTS `login_attempts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `scope` varchar(20) NOT NULL,
+  `ip_address` varchar(45) NOT NULL,
+  `attempts` int(11) NOT NULL DEFAULT 0,
+  `first_attempt_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_attempt_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `locked_until` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `scope_ip` (`scope`, `ip_address`),
+  KEY `locked_until` (`locked_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
