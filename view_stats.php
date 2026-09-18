@@ -105,9 +105,9 @@ if (empty($clicks)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>访问数据 - <?= $link['short_code'] ?></title>
     <!-- 添加Chart.js库，用于绘制统计图表 -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0/dist/chartjs-adapter-moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js" integrity="sha384-RnKkiLpAfnHDqdOT/ZDVBAUtFuUI5F3F/ufOBRAJDi7bhKzoNsbHXQ124YWVBsUV" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.1/dist/chartjs-adapter-moment.min.js" integrity="sha384-s5cwu7c1MxOfC90RGRDWeB53/7VpDTxXi0YxKJF5y9oKA99+UYxMk0qvlqso188s" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         /* 选项卡样式 */
         .tab-nav {
