@@ -5,7 +5,8 @@
 database.db
 
 # 敏感配置文件
-config.php
+# 注意：config.php 本身不含任何密钥（全部走 getenv() + .env），必须随仓库发布，
+# 否则克隆下来 18 个入口文件的 include 'config.php' 全部失败。真正的密钥只放 .env。
 *.env
 *.env.local
 .env*
