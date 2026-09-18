@@ -63,9 +63,15 @@ mysql -u root -p a6cm < create_tables.sql
 mysql -u root -p a6cm -e "SHOW TABLES;"
 ```
 
-> 从旧版本升级的话，请另外执行一次 `db_update.sql`，它会补上
-> `url_clicks.source_table` 这一列。缺这列时点击记录写入会失败，
-> 但跳转一切正常、页面没有任何报错，表现为**点击统计永远是 0**。
+> **从旧版本升级请务必执行一次 `db_update.sql`**，它会：
+> - 补上 `url_clicks.source_table` 列 —— 缺这列时点击记录写入会失败，但跳转一切
+>   正常、页面没有任何报错，表现为**点击统计永远是 0**；
+> - 建 `login_attempts` 表 —— 登录防爆破的失败计数表，缺表时登录不会报错，
+>   但**锁定功能静默失效**（只会往 error_log 写一行）。
+>
+> ```bash
+> mysql -u root -p a6cm < db_update.sql
+> ```
 
 ### 5.1 创建管理员账号
 

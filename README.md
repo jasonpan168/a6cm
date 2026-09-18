@@ -43,6 +43,8 @@ cd a6cm
 # 2) 建库建表
 mysql -u root -p -e "CREATE DATABASE a6cm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 mysql -u root -p a6cm < create_tables.sql
+# 从旧版本升级的话，再跑一次增量脚本（新装不需要）
+# mysql -u root -p a6cm < db_update.sql
 
 # 3) 配置
 cp .env.example .env
@@ -284,15 +286,33 @@ a6cm/
 
 | 防护 | 状态 | 说明 |
 | --- | --- | --- |
-| **SQL 注入** | ✅ 基本到位 | 所有用户输入都走 PDO 预处理（`prepare`/`execute`），且 `PDO::ATTR_EMULATE_PREPARES => false`。少数 `->query()` 调用（如 `SELECT COUNT(*) FROM users`）均为**静态 SQL，不拼接任何输入**。 |
-| **XSS** | ⚠️ 部分 | 输出普遍使用 `htmlspecialchars()`，注册/登录输入也做了转义。但代码量大、模板散落在各 PHP 文件中，**未经过系统性审计**，不能保证无遗漏。 |
-| **CSRF** | ⚠️ **覆盖不全** | `index.php`（`hash_equals` 校验）、`login.php`、`register.php` 有 CSRF token。**`admin_login.php`、`admin_dashboard.php`、`admin_users.php`、`user_dashboard.php`、`resend_verification.php`、`verify_email.php` 的表单没有 CSRF 保护。** 后台建议额外限制来源 IP 或放在内网 / VPN 后。 |
-| **登录防爆破** | ⚠️ 弱，且后台完全没有 | `login.php` 有「5 次失败锁 30 分钟」，但计数存在 **session** 里 —— 攻击者丢掉 cookie 即可绕过。**`admin_login.php` 没有任何失败次数限制，也没有 `session_regenerate_id()`。** 生产环境请在 Nginx / WAF / fail2ban 层面对 `admin_login.php` 做限速。 |
-| **会话安全** | ⚠️ 部分 | 前台登录成功后会 `session_regenerate_id(true)` 并设置 `secure` + `httponly` + `SameSite=Strict` 的 cookie（`secure=true` 意味着**必须有 HTTPS，否则登录态无法保持**）。后台登录没有做这些。 |
+| **SQL 注入** | ✅ | 所有用户输入都走 PDO 预处理（`prepare`/`execute`），且 `PDO::ATTR_EMULATE_PREPARES => false`。少数 `->query()` 调用（如 `SELECT COUNT(*) FROM users`）均为**静态 SQL，不拼接任何输入**。 |
+| **XSS** | ✅ 已审计并修复 | 已逐处审计所有输出用户可控数据的位置。审计中发现并修复了**两个真实的存储型 XSS**（详见下方「已修复的历史问题」）：自定义短码未校验 + 输出未转义；以及 `original_url` 被插进 JS 字符串时只做 `htmlspecialchars` 不足以防逃逸。现在 HTML 上下文一律 `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')`，JS 上下文一律走 `a6_js()`（`json_encode` + 转义）。 |
+| **CSRF** | ✅ 全覆盖 | 所有有副作用的端点（含 `admin_login`、`admin_dashboard`、`admin_users`、`user_dashboard`、`resend_verification`、`verify_email`、`update_link` 这个 JSON 接口）都在产生任何副作用之前调用 `csrf_require()`，校验用 `hash_equals`。AJAX 可把 token 放 body 或 `X-CSRF-Token` 头。token 每 30 分钟轮换，并保留上一枚一个周期作为宽限。 |
+| **登录防爆破** | ✅ 前后台都有 | 失败计数存**数据库** `login_attempts` 表，按 `(scope, ip)` 计，单条 `INSERT ... ON DUPLICATE KEY UPDATE` 原子自增（并发不丢计数）。默认连续 5 次失败锁该 IP 15 分钟，可用 `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_SECONDS` / `LOGIN_WINDOW_SECONDS` 调整。**计数不在 session 里**，所以换 cookie 绕不过去。 |
+| **会话安全** | ✅ | 前后台登录成功后都调用 `session_regenerate_id(true)`（防会话固定）。会话 cookie 的 `secure`（HTTPS 下自动开启）/ `httponly` / `SameSite=Lax` 由 `a6_session_boot()` 在 `session_start()` **之前**统一设置——原来 `login.php` 把它写在 `session_start()` 之后，那是个从未生效的空操作。 |
+| **目标 URL 校验** | ✅ | 新建（`index.php`）与编辑（`update_link.php`）共用 `a6_validate_target_url()`：只允许 `http`/`https`，拒绝控制字符、超长、无主机名，并查域名黑名单。自定义短码限定 `^[a-zA-Z0-9]{1,20}$`。 |
 | **权限校验** | ✅ | 后台页面均以 `isset($_SESSION['admin_logged_in'])` 作为入口守卫。 |
 | **错误回显** | ✅ | `config.php` 默认 `display_errors=0` + `log_errors=1`，不向访问者暴露路径 / SQL。本地调试设 `APP_DEBUG=1` 打开。 |
 | **敏感文件** | ✅ 有规则，需你验证 | `.htaccess` 拒绝 `.env`、`config.php`、`*.sql`、`*.db`、`*.sqlite*`；nginx 需要你按上面的配置手动对齐，**并用上面的 curl 自查脚本实际验证**。 |
-| **速率限制** | ⚠️ 仅创建链接 | `index.php` 对每用户每分钟创建条数有限制（免费 5 次 / 付费 60 次）。跳转、二维码、统计接口**没有**限流。 |
+| **速率限制** | ⚠️ 仅创建链接和登录 | `index.php` 对每用户每分钟创建条数有限制（免费 5 次 / 付费 60 次，**存在 session 里**，换 cookie 可绕过——它是防误操作不是防攻击）；登录有上面的 IP 锁定。跳转、二维码、统计接口**没有**限流，请在 nginx / WAF 层补。 |
+| **内容安全策略（CSP）** | ❌ 没有 | 项目不下发 CSP 响应头。建议在 Web 服务器层自行添加。 |
+
+### 3.1 已修复的历史问题（供从旧版本升级的人参考）
+
+如果你部署的是本次加固之前的版本，以下问题**确实存在**，请尽快升级：
+
+| 问题 | 影响 |
+| --- | --- |
+| 自定义短码未校验 + 输出未转义 | **存储型 XSS**：普通注册用户可在管理员后台执行脚本；超长短码还会直接 500 |
+| `original_url` 插入 JS 字符串只用 `htmlspecialchars` | **存储型 XSS**：`?a='+alert(1)+'` 可从 JS 字符串逃逸 |
+| 后台全线无 CSRF | 诱导已登录管理员访问一个页面即可批量删链接、改用户权限 |
+| `resend_verification.php` 用 GET 触发发信 | CSRF + 免费发信放大器（`<img src=...>` 即可触发） |
+| `admin_login.php` 无失败限制、无 `session_regenerate_id` | 可全速爆破；存在会话固定风险 |
+| 前台失败计数存 session | 丢掉 cookie 即可重置，等于没有防护 |
+| `login.php` 的 cookie 加固写在 `session_start()` 之后 | `secure`/`httponly`/`SameSite` 从未生效 |
+| `index.php` 不校验目标 URL | `javascript:` / `file:` / `ftp:` 等可入库 |
+| `create_tables.sql` 缺 `url_clicks.source_table` | 点击统计恒为 0，且无任何报错 |
 
 ### 4. 短链接服务特有的风险：被当成钓鱼跳板
 
@@ -302,19 +322,43 @@ a6cm/
 
 **本项目当前的能力（如实说明）：**
 
-- ❌ **没有**目标 URL 黑名单
-- ❌ **没有**接入任何恶意网址情报源（Google Safe Browsing / 腾讯 / 360 等）
+- ✅ **域名黑名单**（见下方用法），新建和编辑两条路径都会检查
+- ✅ **协议白名单**：只允许 `http://` 和 `https://`，`javascript:` / `data:` /
+  `file:` / `vbscript:` / `ftp:` 一律拒绝
+- ✅ 只有**登录用户**才能创建链接，且注册需要邮箱验证
+- ❌ **没有**接入恶意网址情报源（Google Safe Browsing / 腾讯 / 360 等）
 - ❌ **没有**人工审核队列
 - ❌ **没有**举报入口
-- ⚠️ `index.php` 创建链接时**不做 URL 格式校验**（只有 `update_link.php` 用了
-  `filter_var(..., FILTER_VALIDATE_URL)`）；`redirect.php` 在跳转前如果目标不以
-  `http` 开头会自动补 `http://`，这恰好使 `javascript:` 一类的伪协议失效，
-  但这属于巧合，不是刻意的防护。
-- ✅ 只有**登录用户**才能创建链接，且注册需要邮箱验证——这是目前唯一的门槛。
+- ❌ 跳转前**没有**「即将前往外部网站」的中间确认页
 
-**强烈建议部署者自行加固：**
+#### 域名黑名单怎么用
 
-1. 在 `index.php` 入库前加目标 URL 校验与黑名单（域名黑名单 + 情报 API）；
+两个来源，取并集，默认都是空的（= 不拦截任何域名）：
+
+**方式一：`blacklist.txt`**（项目根目录，每行一个域名，`#` 开头为注释）
+
+```
+# blacklist.txt
+malware-example.test
+phishing-example.test
+```
+
+**方式二：`.env` 里的 `URL_BLACKLIST`**（逗号分隔）
+
+```ini
+URL_BLACKLIST=malware-example.test,phishing-example.test
+```
+
+匹配规则：**精确匹配，或作为父域匹配**。写 `evil.test` 会同时拦下
+`evil.test` 和 `a.b.evil.test`，但不会误伤 `notevil.test.com`。
+命中后创建/编辑都会被拒绝，并提示「该域名已被本站列入黑名单」。
+
+改完立即生效，无需重启（每次请求读取一次）。黑名单很大时建议改用
+`.env` 方式或自行加缓存。
+
+**仍然建议部署者补充：**
+
+1. 接入恶意网址情报 API，在 `a6_validate_target_url()` 里加一层查询；
 2. 新用户的链接先进待审队列，或对新注册账号限制创建条数；
 3. 跳转前加一个「即将前往外部网站」的中间确认页；
 4. 定期导出 `links.original_url` 抽查；
@@ -328,7 +372,9 @@ a6cm/
 - [ ] 数据库用户只授予 `SELECT/INSERT/UPDATE/DELETE`，不给 `DROP`/`GRANT`
 - [ ] 数据库密码不是默认值（`.env.example` 里的是占位符，不要直接用）
 - [ ] `APP_DEBUG` 未设置或不为 `1`（确保错误不回显）
-- [ ] `admin_login.php` 加了限速 / fail2ban / IP 白名单
+- [ ] `admin_login.php` 额外加了 fail2ban / IP 白名单（项目内置的 IP 锁定已生效，但多一层更稳）
+- [ ] `login_attempts` 表已存在（新装由 `create_tables.sql` 建；升级请跑 `db_update.sql`）
+- [ ] 目标域名黑名单 `blacklist.txt` / `URL_BLACKLIST` 已按需配置
 - [ ] `phpqrcode/cache/` 可写，但**不可通过 Web 列目录**
 - [ ] 目标 URL 黑名单或审核机制已就位（见上一节）
 - [ ] `url_clicks` 保留期限与清理任务已配置（IP 属个人信息）
@@ -339,10 +385,14 @@ a6cm/
 ### 6. 已知限制
 
 - **SQLite 不可用**（`create_tables.sql` 是 MySQL DDL，代码用 MySQL 专有函数）。
-- 后台（`admin_*.php`）在 CSRF、防爆破、会话加固上明显弱于前台，**请勿直接暴露在公网**。
+- 后台没有二次验证（2FA），也没有操作审计日志；虽然 CSRF / 防爆破 / 会话加固已补齐，
+  仍建议把 `admin_*.php` 放在 IP 白名单或 VPN 之后。
+- 创建链接的频率限制存在 session 里，换 cookie 可绕过；它防的是误操作，不是攻击者。
+- 没有下发 CSP 响应头。
 - 前端依赖 jsDelivr / BootCDN 上的 Chart.js、moment.js、Tailwind CSS，
   已加 SRI 校验；但如果 CDN 在你的网络环境不可达，相关页面样式/图表会失效。
-- 代码未经过完整的第三方安全审计。发现问题请走
+- 本次已针对 CSRF、XSS、SQL 注入、认证与目标 URL 校验做过一轮自查并修复，
+  但**未经过独立第三方安全审计**。发现问题请走
   [GitHub 私密安全通报](https://github.com/jasonpan168/a6cm/security/advisories/new)。
 
 ### 7. 报告安全问题
