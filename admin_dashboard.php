@@ -924,6 +924,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
     <footer class="bg-white border-t mt-8 py-4">
         <div class="container mx-auto px-4 text-center text-gray-600">
             <p>&copy; <?= date('Y') ?> 短链接管理系统. All rights reserved.</p>
+            <?php echo a6_legal_notice(); ?>
         </div>
     </footer>
 

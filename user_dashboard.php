@@ -661,6 +661,7 @@ if (isset($_GET['deleted']) && $_GET['deleted'] == 1) {
 
     <div class="footer">
         <p>© <?php echo date('Y'); ?> A6.cm短网址服务 - 让链接分享更简单</p>
+        <?php echo a6_legal_notice(); ?>
     </div>
 </body>
 </html>

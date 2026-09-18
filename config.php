@@ -135,6 +135,41 @@ if (!defined('QR_CODE_API')) {
     define('QR_CODE_API', getenv('QR_CODE_API') ?: '');
 }
 
+// ---------------------------------------------------------------------------
+// 源代码获取地址 / Appropriate Legal Notice
+// ---------------------------------------------------------------------------
+// AGPL-3.0 第 13 条要求：通过网络向用户提供服务时，必须让用户能取得本服务
+// 所运行的完整源代码。LICENSE.md 的附加条款同时要求保留指向原始仓库的链接
+// 与原作者署名 —— 依据 AGPL 第 7(b) 条，附加条款只能要求「保留」，所以上游
+// 自己必须先把这条声明放进页脚，下游才谈得上保留。
+//
+// 如果你修改了本项目并对外提供服务，请在 .env 里把 SOURCE_CODE_URL 指向
+// 你自己那份修改后源代码的位置（AGPL 要求提供的是你实际运行的版本）。
+if (!defined('UPSTREAM_REPO_URL')) {
+    define('UPSTREAM_REPO_URL', 'https://github.com/jasonpan168/a6cm');
+}
+if (!defined('SOURCE_CODE_URL')) {
+    define('SOURCE_CODE_URL', getenv('SOURCE_CODE_URL') ?: UPSTREAM_REPO_URL);
+}
+
+if (!function_exists('a6_legal_notice')) {
+    /**
+     * 页脚法律声明：原始项目署名 + 源代码入口。
+     * 所有带界面的页面都应当输出它，请勿删除（见 LICENSE.md 附加条款第 1 条）。
+     */
+    function a6_legal_notice()
+    {
+        $upstream = htmlspecialchars(UPSTREAM_REPO_URL, ENT_QUOTES, 'UTF-8');
+        $source   = htmlspecialchars(SOURCE_CODE_URL, ENT_QUOTES, 'UTF-8');
+
+        return '<p class="agpl-notice" style="font-size:12px;opacity:.75;margin-top:6px;">'
+            . '基于 <a href="' . $upstream . '" target="_blank" rel="noopener noreferrer">A6.cm</a>'
+            . '（<a href="' . $upstream . '/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">AGPL-3.0</a>）构建'
+            . ' · <a href="' . $source . '" target="_blank" rel="noopener noreferrer">获取源代码</a>'
+            . '</p>';
+    }
+}
+
 try {
     $options = [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,

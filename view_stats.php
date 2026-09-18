@@ -780,6 +780,7 @@ if (empty($clicks)) {
     <div class="footer">
         <div class="container">
             <p>&copy; <?= date('Y') ?> 短链接管理系统</p>
+            <?php echo a6_legal_notice(); ?>
         </div>
     </div>
 </body>
